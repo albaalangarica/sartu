@@ -72,6 +72,8 @@ function asDate(value) {
   if (!value) return null;
   if (value instanceof Date) return value;
   if (typeof value === 'number') return new Date(Math.round((value - 25569) * 86400 * 1000));
+  const spanish=String(value).trim().match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);
+  if(spanish)return new Date(+spanish[3],+spanish[2]-1,+spanish[1]);
   const gviz=String(value).match(/^Date\((\d+),(\d+),(\d+)(?:,(\d+),(\d+),(\d+))?\)$/);
   if(gviz)return new Date(+gviz[1],+gviz[2],+gviz[3],+(gviz[4]||0),+(gviz[5]||0),+(gviz[6]||0));
   const date=new Date(value); return Number.isNaN(date.getTime())?null:date;
