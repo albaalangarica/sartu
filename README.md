@@ -2,13 +2,12 @@
 
 ## Archivos que debe contener el repositorio
 
-Coloca en la raíz del repositorio `albaalangarica/sartu` estos tres archivos:
+La web utiliza estos dos archivos:
 
 1. `index.html`
 2. `app.js`
-3. `Excel_maestro_curso_igualdad_demo_1.xlsx`
 
-El nombre del Excel debe conservarse exactamente. La web lo busca mediante una ruta relativa y transforma sus hojas en contenido visible cada vez que se carga.
+Los contenidos se leen del Google Sheets oficial **Curso de igualdad · Datos web**. Ya no es necesario subir el Excel al repositorio.
 
 ## Publicación
 
@@ -22,13 +21,11 @@ Después guarda. GitHub mostrará la dirección pública cuando termine el despl
 
 ## Actualizar el contenido
 
-Para cambiar módulos, materiales, avisos, calendario o progreso, edita el Excel y sustituye en el repositorio el archivo anterior por el nuevo, manteniendo exactamente el mismo nombre y la misma estructura de hojas y encabezados.
-
-La web lee estas hojas: `CONFIGURACION`, `ALUMNOS`, `MODULOS`, `LECCIONES`, `MATERIALES`, `TAREAS`, `PROGRESO`, `CALENDARIO`, `AVISOS` y `ASISTENCIA`.
+Para cambiar el programa, el calendario o los materiales, edita el Google Sheets. La web lee las pestañas `CONFIGURACION`, `CALENDARIO_WEB` y `MATERIALES_WEB` cada vez que se abre.
 
 ## Límite de esta versión
 
-GitHub Pages es una publicación estática. Puede leer el Excel, pero no modificarlo. Los cambios hechos desde la web no pueden guardarse en el libro sin añadir una capa intermedia (por ejemplo, Google Apps Script, Supabase o un pequeño servidor). Tampoco debe usarse esta versión para datos personales o contraseñas reales: todo archivo incluido en un repositorio público puede descargarse.
+El panel personal se guarda en el navegador de cada alumna mediante almacenamiento local. No escribe datos personales ni progreso en el Google Sheets.
 
 ## Prueba local
 
