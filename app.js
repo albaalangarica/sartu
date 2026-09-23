@@ -46,28 +46,12 @@ async function loadCourse() {
   }
 }
 
-function loadSheet(sheetName) {
-  return new Promise((resolve, reject) => {
-    const callback = `sheetCallback_${sheetName.replace(/\W/g, '')}_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-    const script = document.createElement('script');
-    const timer = setTimeout(() => finish(new Error(`Tiempo de espera agotado al leer ${sheetName}.`)), 15000);
-    function finish(error, rows) { clearTimeout(timer); delete window[callback]; script.remove(); error ? reject(error) : resolve(rows); }
-    window[callback] = response => {
-      if (!response || response.status === 'error') {
-        const message = response?.errors?.[0]?.detailed_message || `No se pudo leer ${sheetName}.`;
-        finish(new Error(message)); return;
-      }
-      const columns = response.table.cols.map((column, index) => column.label || column.id || `COL_${index}`);
-      const rows = response.table.rows.map(row => Object.fromEntries(columns.map((column, index) => {
-        const cell = row.c[index]; return [column, cell ? (cell.v ?? cell.f ?? '') : ''];
-      })));
-      finish(null, rows);
-    };
-    script.onerror = () => finish(new Error('El Google Sheets no está disponible para lectura pública.'));
-    const tqx = encodeURIComponent(`out:json;responseHandler:${callback}`);
-    script.src = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=${tqx}&sheet=${encodeURIComponent(sheetName)}&headers=1`;
-    document.head.appendChild(script);
-  });
+async function loadSheet(sheetName) {
+  const response = await fetch(`https://opensheet.elk.sh/${SHEET_ID}/${encodeURIComponent(sheetName)}`, { cache: 'no-store' });
+  if (!response.ok) throw new Error(`No se pudo leer ${sheetName} (${response.status}).`);
+  const rows = await response.json();
+  if (!Array.isArray(rows)) throw new Error(`La pestaña ${sheetName} no tiene un formato válido.`);
+  return rows;
 }
 
 function normalizeSession(row) {
