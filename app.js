@@ -3,8 +3,9 @@ const SHEET_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit`;
 const STORAGE_KEY = 'igualdad-en-practica-progreso-v1';
 const INCIDENT_STORAGE_KEY = 'igualdad-en-practica-incidencias-demo-v1';
 const EVALUATION_STORAGE_KEY = 'igualdad-en-practica-evaluaciones-demo-v1';
+const ATTENDANCE_STORAGE_KEY = 'igualdad-en-practica-asistencia-demo-v1';
 
-const state = { data: null, page: 'home', month: null, completed: loadCompleted(), currentSessionId: null };
+const state = { data: null, role: 'student', page: 'home', month: null, currentSessionId: null };
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
 const esc = value => String(value ?? '').replace(/[&<>'"]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));
@@ -121,20 +122,20 @@ function asDate(value) {
 function fmtDate(value, options={day:'2-digit',month:'short',year:'numeric'}) { const date=asDate(value); return date?new Intl.DateTimeFormat('es-ES',options).format(date):'—'; }
 
 function renderBase() { const name=state.data.cfg.NOMBRE_CURSO||'Igualdad en práctica'; $('#brandName').textContent=name; $('#sideBrand').textContent=name; document.title=`${name} · Aula`; }
-function enter() { $('#login').classList.add('hidden'); $('#app').classList.remove('hidden'); renderNav(); renderAll(); go('home'); }
+function enter(event) { state.role=event.currentTarget.dataset.role||'student'; $('#login').classList.add('hidden'); $('#app').classList.remove('hidden'); renderNav(); renderAll(); go(state.role==='teacher'?'teacher-home':'home'); }
 
 function renderNav() {
-  const items=[['home','⌂','Inicio'],['program','▦','Programa'],['calendar','□','Calendario'],['resources','◇','Recursos'],['progress','◎','Panel personal']];
+  const items=state.role==='teacher'?[['teacher-home','⌂','Inicio'],['today','◉','Sesión de hoy'],['program','▦','Programa'],['students','♙','Alumnado'],['attendance','✓','Asistencia'],['evaluations','☆','Evaluaciones'],['resources','◇','Materiales']]:[['home','⌂','Inicio'],['program','▦','Programa'],['calendar','□','Calendario'],['resources','◇','Recursos'],['progress','◎','Panel personal']];
   $('#nav').innerHTML=items.map(([id,icon,label])=>`<button data-page="${id}"><i>${icon}</i>${label}</button>`).join('');
   $$('#nav button').forEach(button=>button.onclick=()=>go(button.dataset.page));
-  $('#userName').textContent='Mi aula'; $('#userRole').textContent='Alumna';
+  $('#userName').textContent=state.role==='teacher'?'Coral':'Alumno demo'; $('#userRole').textContent=state.role==='teacher'?'Profesora':'Alumno';
 }
 
 function go(page) { state.page=page; $$('.page').forEach(section=>section.classList.toggle('active',section.id===`page-${page}`)); $$('#nav button').forEach(button=>button.classList.toggle('active',button.dataset.page===page)); const button=$(`#nav [data-page="${page}"]`); $('#topTitle').textContent=button?button.textContent.trim():'Aula'; if(page==='program'){ $('#moduleGrid').classList.remove('hidden'); $('#moduleView').classList.add('hidden'); } window.scrollTo({top:0,behavior:'smooth'}); }
-function renderAll() { renderHome(); renderModules(); renderResources(); renderPersonal(); renderCalendar(); }
+function renderAll() { renderHome(); renderModules(); renderResources(); renderPersonal(); renderCalendar(); renderTeacherHome(); renderToday(); renderStudents(); renderAttendance(); renderTeacherEvaluations(); }
 
 function renderHome() {
-  const {cfg,sessions,resources}=state.data, ordered=[...sessions].sort((a,b)=>a.date-b.date), today=startOfDay(new Date()), next=ordered.find(session=>session.date>=today)||ordered[ordered.length-1],currentModule=state.data.modules.find(module=>module.available&&module.sessions.some(session=>session.id===next?.id)),completed=currentModule?.sessions.filter(session=>state.completed.has(session.id)).length||0,progress=currentModule?.sessions.length?completed/currentModule.sessions.length:0;
+  const {cfg,sessions,resources}=state.data, ordered=[...sessions].sort((a,b)=>a.date-b.date), today=startOfDay(new Date()), next=ordered.find(session=>session.date>=today)||ordered[ordered.length-1],currentModule=state.data.modules.find(module=>module.available&&module.sessions.some(session=>session.id===next?.id)),completed=currentModule?.sessions.filter(isSessionPassed).length||0,progress=currentModule?.sessions.length?completed/currentModule.sessions.length:0;
   $('#homeEyebrow').textContent='Tu aula'; $('#welcome').textContent='Buenos días.'; $('#homeIntro').textContent='Consulta el programa actualizado y continúa tu recorrido por el curso.'; $('#courseEdition').textContent=`Edición ${cfg.EDICION||'2026–2027'}`;
   state.currentSessionId=next?.id||null;
   $('#heroCard').dataset.number=next?.courseDay||'•'; $('#heroTitle').textContent=next?.title||'Programa del curso'; $('#heroText').textContent=next?`${sameDay(next.date,today)?'Sesión de hoy':'Próxima sesión'} · ${fmtDate(next.date)}${next.details?` · ${next.details}`:''}`:'Consulta las sesiones publicadas.'; $('#heroAction').textContent=next?'Ir a la sesión':'Ver programa';
@@ -147,23 +148,25 @@ function renderHome() {
 
 function renderModules() {
   const modules=state.data.modules; $('#moduleCount').textContent=`${modules.length} módulos`;
-  $('#moduleGrid').innerHTML=modules.map(module=>{const done=module.sessions.filter(session=>state.completed.has(session.id)).length,locked=!module.available,percent=Math.round(done/module.sessions.length*100);return `<article class="card module ${locked?'locked':''}"><span class="module-no">${String(module.number).padStart(2,'0')}</span><span class="tag">${locked?'Próximamente':`${done}/${module.sessions.length}`}</span><h3>${esc(module.title)}</h3><p>${locked?'Este módulo todavía no está disponible.':`${module.sessions.length} sesiones programadas entre ${fmtDate(module.start,{day:'2-digit',month:'short'})} y ${fmtDate(module.end,{day:'2-digit',month:'short'})}.`}</p><div class="module-meta"><span>${module.sessions.length} sesiones</span>${locked?'':`<span>${percent}%</span>`}</div>${locked?'':`<div class="bar"><span style="width:${percent}%"></span></div>`}<button class="ghost" ${locked?'disabled':`data-module="${esc(module.id)}"`}>${locked?'No disponible':'Entrar al módulo'}</button></article>`}).join('');
+  $('#moduleGrid').innerHTML=modules.map(module=>{const done=module.sessions.filter(isSessionPassed).length,locked=state.role!=='teacher'&&!module.available,percent=Math.round(done/module.sessions.length*100);return `<article class="card module ${locked?'locked':''}"><span class="module-no">${String(module.number).padStart(2,'0')}</span><span class="tag">${state.role==='teacher'?(module.available?'Visible':'Borrador'):(locked?'Próximamente':`${done}/${module.sessions.length}`)}</span><h3>${esc(module.title)}</h3><p>${locked?'Este módulo todavía no está disponible.':`${module.sessions.length} sesiones programadas entre ${fmtDate(module.start,{day:'2-digit',month:'short'})} y ${fmtDate(module.end,{day:'2-digit',month:'short'})}.`}</p><div class="module-meta"><span>${module.sessions.length} sesiones</span>${locked?'':`<span>${percent}% calendario</span>`}</div>${locked?'':`<div class="bar"><span style="width:${percent}%"></span></div>`}<button class="ghost" ${locked?'disabled':`data-module="${esc(module.id)}"`}>${locked?'No disponible':state.role==='teacher'?'Gestionar módulo':'Entrar al módulo'}</button></article>`}).join('');
   $$('[data-module]').forEach(button=>button.onclick=()=>openModule(button.dataset.module));
 }
 
 function openModule(id, focusSessionId=null) {
-  const module=state.data.modules.find(item=>item.id===id); if(!module||!module.available)return;
+  const module=state.data.modules.find(item=>item.id===id); if(!module||(state.role!=='teacher'&&!module.available))return;
   go('program'); $('#moduleGrid').classList.add('hidden');
   const view=$('#moduleView'); view.classList.remove('hidden');
-  view.innerHTML=`<div class="module-view-head"><button class="ghost" id="backModules">← Módulos</button><div><p class="eyebrow">${esc(module.name)} · ${module.sessions.length} sesiones</p><h2>${esc(module.title)}</h2></div></div><div class="session-grid">${module.sessions.map(sessionCard).join('')}</div>`;
+  const evaluation=loadEvaluations().find(item=>item.moduleId===module.id);
+  view.innerHTML=`<div class="module-view-head"><button class="ghost" id="backModules">← Módulos</button><div><p class="eyebrow">${esc(module.name)} · ${module.sessions.length} sesiones</p><h2>${esc(module.title)}</h2></div></div><div class="session-grid">${module.sessions.map(sessionCard).join('')}${state.role==='student'?`<article class="card session-card"><span class="chip">Evaluación del módulo</span><h3>Tu valoración</h3><p>Valora la utilidad, claridad y aplicación de lo aprendido en este módulo.</p><div class="session-actions"><button class="primary" data-module-evaluation="${esc(module.id)}">${evaluation?'Modificar evaluación':'Completar evaluación'}</button>${evaluation?'<span class="tag">Enviada ✓</span>':''}</div></article>`:''}</div>`;
   $('#backModules').onclick=()=>{view.classList.add('hidden');$('#moduleGrid').classList.remove('hidden');};
   view.querySelectorAll('[data-session]').forEach(button=>button.onclick=()=>openSession(button.dataset.session));
+  view.querySelectorAll('[data-module-evaluation]').forEach(button=>button.onclick=()=>openEvaluation(button.dataset.moduleEvaluation));
   if(focusSessionId){ const card=view.querySelector(`[data-session-card="${CSS.escape(String(focusSessionId))}"]`); card?.scrollIntoView({behavior:'smooth',block:'center'}); }
 }
 
 function sessionCard(session) {
-  const done=state.completed.has(session.id),hasResource=sessionLinks(session).length>0;
-  return `<article class="card session-card" data-session-card="${esc(session.id)}"><span class="chip">${fmtDate(session.date,{weekday:'long',day:'2-digit',month:'short'})}</span><h3>${esc(session.title)}</h3><p>${esc(session.details||'Consulta el contenido y los materiales de esta sesión.')}</p><div class="session-actions"><button class="primary" data-session="${esc(session.id)}">Abrir sesión</button>${hasResource?'':'<span class="helper">Material pendiente</span>'}${done?'<span class="tag">Realizada ✓</span>':''}</div></article>`;
+  const passed=isSessionPassed(session),hasResource=sessionLinks(session).length>0;
+  return `<article class="card session-card" data-session-card="${esc(session.id)}"><span class="chip">${fmtDate(session.date,{weekday:'long',day:'2-digit',month:'short'})}</span><h3>${esc(session.title)}</h3><p>${esc(session.details||'Consulta el contenido y los materiales de esta sesión.')}</p><div class="session-actions"><button class="primary" data-session="${esc(session.id)}">${state.role==='teacher'?'Ver sesión':'Abrir sesión'}</button>${hasResource?'':'<span class="helper">Material pendiente</span>'}${passed?'<span class="tag">Fecha realizada</span>':''}</div></article>`;
 }
 
 function sessionLinks(session) { return unique((session.links||[]).map(link=>link.url)).map(url=>session.links.find(link=>link.url===url)); }
@@ -172,34 +175,31 @@ function openSession(id) {
   const session=state.data.sessions.find(item=>item.id===id); if(!session)return;
   $('#sessionEyebrow').textContent=`${session.module||'Programa'} · ${fmtDate(session.date)}`; $('#sessionTitle').textContent=session.title; $('#sessionDescription').textContent=session.details||'Contenido de la sesión.';
   $('#sessionActivityList').innerHTML=session.activities.map(activity=>`<li><strong>${esc(activity.title)}</strong>${activity.details?`<br><small>${esc(activity.details)}</small>`:''}</li>`).join('');
-  const links=sessionLinks(session),done=state.completed.has(session.id); $('#sessionResources').innerHTML=`${links.length?links.map(link=>`<a class="primary" href="${esc(link.url)}" target="_blank" rel="noopener">${esc(link.label)}${link.activity?` · ${esc(link.activity)}`:''}</a>`).join(''):'<p class="helper">Los materiales de esta sesión se publicarán aquí cuando estén disponibles.</p>'}<button class="${done?'ghost':'primary'}" id="toggleSessionDone">${done?'Marcar como pendiente':'Marcar sesión realizada'}</button>`;
-  $('#toggleSessionDone').onclick=()=>{toggleCompleted(session.id);openSession(session.id)};
+  const links=sessionLinks(session); $('#sessionResources').innerHTML=links.length?links.map(link=>`<a class="primary" href="${esc(link.url)}" target="_blank" rel="noopener">${esc(link.label)}${link.activity?` · ${esc(link.activity)}`:''}</a>`).join(''):'<p class="helper">Los materiales de esta sesión se publicarán aquí cuando estén disponibles.</p>';
   if(!$('#sessionDialog').open)$('#sessionDialog').showModal();
 }
 
 function renderResources() {
-  const published=state.data.resources.filter(resource=>/^https?:\/\//i.test(resource.link)).sort((a,b)=>(a.date||0)-(b.date||0));
+  const all=state.data.resources.sort((a,b)=>(a.date||0)-(b.date||0)),visible=state.role==='teacher'?all:all.filter(resource=>/^https?:\/\//i.test(resource.link));
   const moduleSelect=$('#resourceModule'),typeSelect=$('#resourceType'),moduleValue=moduleSelect.value,typeValue=typeSelect.value;
-  if(moduleSelect.options.length===1)unique(published.map(item=>item.module).filter(Boolean)).forEach(value=>moduleSelect.add(new Option(value,value)));
-  if(typeSelect.options.length===1)unique(published.map(item=>item.type).filter(Boolean)).forEach(value=>typeSelect.add(new Option(value,value)));
+  if(moduleSelect.options.length===1)unique(visible.map(item=>item.module).filter(Boolean)).forEach(value=>moduleSelect.add(new Option(value,value)));
+  if(typeSelect.options.length===1)unique(visible.map(item=>item.type).filter(Boolean)).forEach(value=>typeSelect.add(new Option(value,value)));
   moduleSelect.value=moduleValue;typeSelect.value=typeValue;
-  const resources=published.filter(item=>(!moduleValue||item.module===moduleValue)&&(!typeValue||item.type===typeValue)); $('#resourceCount').textContent=`${published.length} recursos`;
-  $('#resourceGrid').innerHTML=resources.map(resource=>`<article class="card resource"><span class="resource-type">${esc(resource.type)}${resource.module?` · ${esc(resource.module)}`:''}</span><h3>${esc(resource.title)}</h3><p>${resource.date?fmtDate(resource.date):'Material del curso'} · Disponible en línea.</p><a class="ghost" href="${esc(resource.link)}" target="_blank" rel="noopener">Abrir recurso</a></article>`).join('')||'<div class="card empty">No hay materiales publicados con estos filtros.</div>';
+  const resources=visible.filter(item=>(!moduleValue||item.module===moduleValue)&&(!typeValue||item.type===typeValue)); $('#resourceCount').textContent=`${visible.length} recursos`;
+  $('#resourceGrid').innerHTML=resources.map(resource=>{const linked=/^https?:\/\//i.test(resource.link);return `<article class="card resource"><span class="resource-type">${esc(resource.type)}${resource.module?` · ${esc(resource.module)}`:''}</span><h3>${esc(resource.title)}</h3><p>${resource.date?fmtDate(resource.date):'Material del curso'} · ${linked?'Disponible en línea.':'Enlace pendiente.'}</p>${linked?`<a class="ghost" href="${esc(resource.link)}" target="_blank" rel="noopener">Abrir recurso</a>`:'<button class="ghost" disabled>Pendiente en Sheets</button>'}</article>`}).join('')||'<div class="card empty">No hay materiales con estos filtros.</div>';
 }
 
 function renderPersonal() {
-  const today=startOfDay(new Date()),available=state.data.modules.filter(module=>module.available),current=available.find(module=>module.start<=today&&module.end>=today)||available.find(module=>module.end>=today)||available[available.length-1],sessions=current?.sessions||[],done=sessions.filter(session=>state.completed.has(session.id)).length,percentage=sessions.length?Math.round(done/sessions.length*100):0,next=state.data.sessions.find(session=>session.date>=today),incidents=loadIncidents(),evaluations=loadEvaluations(),pending=available.filter(module=>module.end<today&&!evaluations.some(item=>item.moduleId===module.id));
+  const today=startOfDay(new Date()),available=state.data.modules.filter(module=>module.available),current=available.find(module=>module.start<=today&&module.end>=today)||available.find(module=>module.end>=today)||available[available.length-1],sessions=current?.sessions||[],done=sessions.filter(isSessionPassed).length,percentage=sessions.length?Math.round(done/sessions.length*100):0,next=state.data.sessions.find(session=>session.date>=today),incidents=loadIncidents(),evaluations=loadEvaluations(),pending=available.filter(module=>module.end<today&&!evaluations.some(item=>item.moduleId===module.id));
   $('#personalProgress').textContent=current?current.title:'Módulo actual';
   const incidentLabels={absence:'Ausencia',late:'Retraso',early:'Salida anticipada',other:'Otra incidencia'};
-  const moduleSummary=state.data.modules.map(module=>{const count=module.sessions.filter(session=>state.completed.has(session.id)).length,percent=module.sessions.length?Math.round(count/module.sessions.length*100):0;return `<div class="status-item"><div><strong>${esc(module.title)}</strong><p>${module.available?`${count} de ${module.sessions.length} sesiones realizadas`:'Todavía no disponible'}</p></div><span class="tag">${module.available?`${percent}%`:'Bloqueado'}</span></div>`}).join('');
+  const moduleSummary=state.data.modules.map(module=>{const count=module.sessions.filter(isSessionPassed).length,percent=module.sessions.length?Math.round(count/module.sessions.length*100):0;return `<div class="status-item"><div><strong>${esc(module.title)}</strong><p>${module.available?`${count} de ${module.sessions.length} fechas transcurridas`:'Todavía no disponible'}</p></div><span class="tag">${module.available?`${percent}%`:'Bloqueado'}</span></div>`}).join('');
   $('#personalDashboard').innerHTML=`<article class="card dashboard-card"><p class="eyebrow">Progreso del módulo actual</p><h2>${esc(current?.title||'Sin módulo activo')}</h2><div class="gauge" style="--value:${percentage*1.8}deg"><span class="gauge-value">${percentage}%</span></div><div class="metric-row"><div class="metric"><strong>${done}</strong><span>realizadas</span></div><div class="metric"><strong>${Math.max(0,sessions.length-done)}</strong><span>pendientes</span></div><div class="metric"><strong>${sessions.length}</strong><span>sesiones</span></div></div></article><article class="card dashboard-card"><p class="eyebrow">Siguiente paso</p><h2>${next?esc(next.title):'Curso finalizado'}</h2><p>${next?`${fmtDate(next.date)} · ${esc(next.module)}`:'No hay más sesiones publicadas.'}</p>${next?`<button class="primary" data-dashboard-session="${esc(next.id)}">Continuar</button>`:''}<div class="section"><p class="eyebrow">Evaluaciones</p><div class="status-list">${pending.length?pending.map(module=>`<div class="status-item"><div><strong>${esc(module.title)}</strong><p>Pendiente de completar</p></div><button class="ghost" data-evaluate="${esc(module.id)}">Evaluar</button></div>`).join(''):'<div class="status-item"><div><strong>Al día</strong><p>No tienes evaluaciones pendientes.</p></div><span class="tag">✓</span></div>'}</div></div></article><article class="card dashboard-card full-span"><p class="eyebrow">Progreso por módulos</p><h2>Vista general</h2><div class="status-list">${moduleSummary}</div></article><article class="card dashboard-card full-span"><p class="eyebrow">Ausencias e incidencias</p><h2>Mis comunicaciones</h2><div class="status-list">${incidents.length?incidents.slice().reverse().map(item=>{const session=state.data.sessions.find(candidate=>candidate.id===item.sessionId);return `<div class="status-item"><div><strong>${incidentLabels[item.type]||'Incidencia'} · ${session?fmtDate(session.date):'Sesión'}</strong><p>${esc(item.note||session?.title||'Sin observaciones')}</p></div><span class="tag">Registrada</span></div>`}).join(''):'<div class="status-item"><div><strong>Sin comunicaciones</strong><p>No has registrado ausencias ni incidencias.</p></div></div>'}</div></article>`;
   $$('[data-dashboard-session]').forEach(button=>button.onclick=()=>openSessionFromProgram(button.dataset.dashboardSession));
   $$('[data-evaluate]').forEach(button=>button.onclick=()=>openEvaluation(button.dataset.evaluate));
 }
 
-function toggleCompleted(id) { state.completed.has(id)?state.completed.delete(id):state.completed.add(id); localStorage.setItem(STORAGE_KEY,JSON.stringify([...state.completed])); renderPersonal(); renderModules(); renderHome(); }
-function loadCompleted() { try{return new Set(JSON.parse(localStorage.getItem(STORAGE_KEY)||'[]'))}catch{return new Set()} }
-function completedCount() { return state.data.sessions.filter(session=>state.completed.has(session.id)).length; }
+function isSessionPassed(session){const status=loadAttendance()[session.id];if(status&&status!=='pending')return ['present','late','early'].includes(status);return session.date<startOfDay(new Date())}
 
 function sessionRow(session) { return `<article class="card row"><strong>${fmtDate(session.date,{day:'2-digit',month:'short'})}</strong><div><strong>${esc(session.title)}</strong><br><small>${esc(session.weekday)}${session.module?` · ${esc(session.module)}`:''}</small></div><button class="ghost" data-home-session="${esc(session.id)}">Ver sesión</button></article>`; }
 function renderCalendar() {
@@ -214,7 +214,7 @@ function renderCalendar() {
 
 function openSessionFromProgram(id) {
   const session=state.data.sessions.find(item=>item.id===id),module=state.data.modules.find(item=>item.sessions.some(candidate=>candidate.id===id));
-  if(module?.available){openModule(module.id,id);openSession(id);}else{showToast('Este módulo todavía no está disponible.');}
+  if(module&&(state.role==='teacher'||module.available)){openModule(module.id,id);openSession(id);}else{showToast('Este módulo todavía no está disponible.');}
 }
 
 function openIncident(id) {
@@ -231,10 +231,35 @@ function saveIncident(event) {
 
 function loadIncidents(){try{return JSON.parse(localStorage.getItem(INCIDENT_STORAGE_KEY)||'[]')}catch{return[]}}
 const evaluationQuestions=['Los contenidos del módulo me han resultado útiles.','Las explicaciones han sido claras.','Las actividades me han ayudado a comprender los contenidos.','Puedo aplicar lo aprendido en situaciones reales.','Mi valoración global del módulo es positiva.'];
-function openEvaluation(moduleId){const module=state.data.modules.find(item=>item.id===moduleId);if(!module)return;$('#evaluationModule').value=moduleId;$('#evaluationEyebrow').textContent=module.title;$('#evaluationQuestions').innerHTML=evaluationQuestions.map((question,index)=>`<div class="question"><strong>${esc(question)}</strong><div class="scale">${[1,2,3,4,5].map(value=>`<label>${value}<input type="radio" name="evaluation-${index}" value="${value}" required></label>`).join('')}</div></div>`).join('');$('#evaluationComment').value='';$('#evaluationDialog').showModal()}
-function saveEvaluation(event){event.preventDefault();const moduleId=$('#evaluationModule').value,records=loadEvaluations(),answers=evaluationQuestions.map((_,index)=>Number(new FormData(event.currentTarget).get(`evaluation-${index}`)));records.push({id:`evaluation-${Date.now()}`,moduleId,answers,comment:$('#evaluationComment').value.trim(),createdAt:new Date().toISOString()});localStorage.setItem(EVALUATION_STORAGE_KEY,JSON.stringify(records));$('#evaluationDialog').close();renderPersonal();showToast('Evaluación guardada. Gracias por tu valoración.')}
+function openEvaluation(moduleId){const module=state.data.modules.find(item=>item.id===moduleId),existing=loadEvaluations().find(item=>item.moduleId===moduleId);if(!module)return;$('#evaluationModule').value=moduleId;$('#evaluationEyebrow').textContent=module.title;$('#evaluationQuestions').innerHTML=evaluationQuestions.map((question,index)=>`<div class="question"><strong>${esc(question)}</strong><div class="scale">${[1,2,3,4,5].map(value=>`<label>${value}<input type="radio" name="evaluation-${index}" value="${value}" ${existing?.answers[index]===value?'checked':''} required></label>`).join('')}</div></div>`).join('');$('#evaluationComment').value=existing?.comment||'';$('#evaluationDialog').showModal()}
+function saveEvaluation(event){event.preventDefault();const moduleId=$('#evaluationModule').value,records=loadEvaluations().filter(item=>item.moduleId!==moduleId),answers=evaluationQuestions.map((_,index)=>Number(new FormData(event.currentTarget).get(`evaluation-${index}`)));records.push({id:`evaluation-${Date.now()}`,moduleId,answers,comment:$('#evaluationComment').value.trim(),createdAt:new Date().toISOString()});localStorage.setItem(EVALUATION_STORAGE_KEY,JSON.stringify(records));$('#evaluationDialog').close();renderPersonal();renderTeacherEvaluations();showToast('Evaluación guardada. Gracias por tu valoración.')}
 function loadEvaluations(){try{return JSON.parse(localStorage.getItem(EVALUATION_STORAGE_KEY)||'[]')}catch{return[]}}
 function showToast(message){const toast=$('#toast');toast.textContent=message;toast.classList.add('show');clearTimeout(showToast.timer);showToast.timer=setTimeout(()=>toast.classList.remove('show'),2600)}
+
+function activeTeacherSession(){const today=startOfDay(new Date()),ordered=state.data.sessions;return ordered.find(session=>sameDay(session.date,today))||ordered.find(session=>session.date>today)||ordered[ordered.length-1]}
+
+function renderTeacherHome(){
+  const session=activeTeacherSession(),incidents=loadIncidents(),evaluations=loadEvaluations(),pendingMaterials=state.data.resources.filter(item=>!/^https?:\/\//i.test(item.link)).length;
+  $('#teacherDashboard').innerHTML=`<article class="hero-card full-span" data-number="${esc(session?.courseDay||'•')}"><div><p class="eyebrow" style="color:#efb8b1">${session&&sameDay(session.date,new Date())?'Hoy':'Próxima sesión'}</p><h2>${esc(session?.title||'Sin sesiones programadas')}</h2><p>${session?`${fmtDate(session.date)} · ${esc(session.module)}`:'Revisa el programa del curso.'}</p></div>${session?`<button class="primary" data-teacher-session="${esc(session.id)}">Abrir sesión</button>`:''}</article><article class="card dashboard-card"><p class="eyebrow">Requiere atención</p><h2>Resumen</h2><div class="status-list"><div class="status-item"><div><strong>${incidents.length}</strong><p>incidencias comunicadas</p></div><span class="tag">Revisar</span></div><div class="status-item"><div><strong>${pendingMaterials}</strong><p>materiales sin enlace</p></div><span class="tag">Sheets</span></div><div class="status-item"><div><strong>${evaluations.length}</strong><p>evaluaciones recibidas</p></div><span class="tag">Ver</span></div></div></article><article class="card dashboard-card"><p class="eyebrow">Alumnado</p><h2>Perfil provisional</h2><div class="status-item"><div><strong>Alumno demo</strong><p>El listado real se añadirá más adelante.</p></div><span class="tag">Demo</span></div></article>`;
+  $$('[data-teacher-session]').forEach(button=>button.onclick=()=>{go('today');renderToday(button.dataset.teacherSession)});
+}
+
+function renderToday(forcedId=null){
+  const session=state.data.sessions.find(item=>item.id===forcedId)||activeTeacherSession(); if(!session)return;
+  $('#todayTitle').textContent=session.title;$('#todayMeta').textContent=`${fmtDate(session.date)} · Día ${session.courseDay||'—'} del curso`;$('#todayModule').textContent=session.module;
+  const links=sessionLinks(session);$('#todayContent').innerHTML=`<div class="dashboard-grid"><article class="card dashboard-card"><p class="eyebrow">Actividades previstas</p><h2>Contenido de la sesión</h2><div class="status-list">${session.activities.map(item=>`<div class="status-item"><div><strong>${esc(item.title)}</strong><p>${esc(item.details||'Sin indicaciones adicionales')}</p></div></div>`).join('')}</div></article><article class="card dashboard-card"><p class="eyebrow">Materiales</p><h2>Enlaces de trabajo</h2><div class="status-list">${links.length?links.map(link=>`<div class="status-item"><div><strong>${esc(link.activity||link.label)}</strong><p>${esc(link.label)}</p></div><a class="ghost" href="${esc(link.url)}" target="_blank" rel="noopener">Abrir</a></div>`).join(''):'<div class="status-item"><div><strong>Sin enlaces</strong><p>Añádelos en MATERIALES_WEB.</p></div></div>'}</div></article><article class="card dashboard-card full-span"><p class="eyebrow">Asistencia rápida</p><h2>Alumno demo</h2>${attendanceButtons(session.id)}</article></div>`;bindAttendanceButtons(session.id);
+}
+
+function renderStudents(){const sessions=state.data.sessions,passed=sessions.filter(isSessionPassed).length,attendance=loadAttendance(),absences=Object.values(attendance).filter(value=>value==='absence').length,evaluations=loadEvaluations().length;$('#studentList').innerHTML=`<article class="card row"><strong>Alumno demo</strong><div><strong>${passed} fechas transcurridas</strong><br><small>${absences} ausencias · ${evaluations} evaluaciones enviadas</small></div><span class="tag">Perfil demo</span></article>`}
+
+function renderAttendance(){const session=activeTeacherSession();if(!session)return;$('#attendancePanel').innerHTML=`<article class="card dashboard-card"><div class="section-title"><div><p class="eyebrow">${fmtDate(session.date)}</p><h2>${esc(session.title)}</h2></div><button class="primary" id="allPresent">Marcar presentes a todos</button></div><div class="status-item"><div><strong>Alumno demo</strong><p>${esc(session.module)}</p></div>${attendanceButtons(session.id)}</div></article>`;$('#allPresent').onclick=()=>saveAttendance(session.id,'present');bindAttendanceButtons(session.id)}
+
+function attendanceButtons(sessionId){const value=loadAttendance()[sessionId]||'pending',labels={present:'Presente',absence:'Ausencia',justified:'Justificada',late:'Retraso',early:'Salida antes'};return `<div class="attendance-controls">${Object.entries(labels).map(([key,label])=>`<button class="ghost ${value===key?'active':''}" data-attendance="${key}" data-attendance-session="${esc(sessionId)}">${label}</button>`).join('')}</div>`}
+function bindAttendanceButtons(){ $$('[data-attendance]').forEach(button=>button.onclick=()=>saveAttendance(button.dataset.attendanceSession,button.dataset.attendance)); }
+function saveAttendance(sessionId,value){const data=loadAttendance();data[sessionId]=value;localStorage.setItem(ATTENDANCE_STORAGE_KEY,JSON.stringify(data));renderToday(sessionId);renderAttendance();renderStudents();showToast('Asistencia actualizada.')}
+function loadAttendance(){try{return JSON.parse(localStorage.getItem(ATTENDANCE_STORAGE_KEY)||'{}')}catch{return{}}}
+
+function renderTeacherEvaluations(){const records=loadEvaluations();$('#teacherEvaluations').innerHTML=state.data.modules.map(module=>{const record=records.find(item=>item.moduleId===module.id),average=record?record.answers.reduce((sum,value)=>sum+value,0)/record.answers.length:null;return `<article class="card dashboard-card"><p class="eyebrow">${esc(module.name)}</p><h2>${record?`${average.toFixed(1)} / 5`:'Sin respuestas'}</h2><p>${record?`1 respuesta recibida · ${esc(record.comment||'Sin comentario')}`:'El alumno demo todavía no ha enviado la evaluación.'}</p><div class="bar"><span style="width:${record?average/5*100:0}%"></span></div></article>`}).join('')}
 
 function startOfDay(date){return new Date(date.getFullYear(),date.getMonth(),date.getDate())}
 function sameDay(a,b){return a&&b&&a.getFullYear()===b.getFullYear()&&a.getMonth()===b.getMonth()&&a.getDate()===b.getDate()}
