@@ -23,6 +23,23 @@ Después guarda. GitHub mostrará la dirección pública cuando termine el despl
 
 Para cambiar el programa, el calendario o los materiales, edita el Google Sheets. La web lee las pestañas `CONFIGURACION`, `CALENDARIO_WEB` y `MATERIALES_WEB` cada vez que se abre.
 
+### Añadir enlaces y materiales
+
+Utiliza una fila de `MATERIALES_WEB` por cada archivo o enlace:
+
+- `ID_MATERIAL`: identificador único, por ejemplo `MAT-107`.
+- `FECHA`: fecha de la sesión en formato `24/09/2026`.
+- `MODULO`: debe coincidir con el nombre usado en `CALENDARIO_WEB`, por ejemplo `Modulo 0`.
+- `TITULO`: nombre que verá el alumnado.
+- `TIPO`: `Documento`, `Presentación`, `Vídeo`, `Lectura`, `Plantilla` o `Enlace`.
+- `ENLACE`: URL completa, comenzando por `https://`.
+- `FILA_ORIGEN`: referencia interna opcional.
+- `VISIBLE`: escribe `TRUE` para publicarlo y `FALSE` para ocultarlo.
+
+La web coloca el material en la sesión que tenga la misma fecha y el mismo módulo. También lo muestra en la pestaña Recursos. Los materiales sin URL válida no se enseñan al alumnado.
+
+En Google Drive, abre **Compartir → Acceso general** y decide si el archivo puede verlo cualquier persona con el enlace o solamente las cuentas autorizadas. Copia el enlace de visualización, no el código para insertar.
+
 ## Límite de esta versión
 
 El panel personal se guarda en el navegador de cada alumna mediante almacenamiento local. No escribe datos personales ni progreso en el Google Sheets.
