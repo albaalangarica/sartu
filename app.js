@@ -72,7 +72,7 @@ function normalizeActivities(rows) {
     if(rawModule)previousModule=rawModule;
     let date=asDate(row.FECHA); if(!date&&courseDay&&courseDay===previousDay)date=previousDate;
     if(date)previousDate=date; if(courseDay)previousDay=courseDay;
-    return { id:String(row.ID), module:rawModule||previousModule||'Próximos módulos', courseDay, weekday:String(row.DIA_SEMANA||'').trim(), date, title:String(row.ACTIVIDAD_PRINCIPAL||row.ACTIVIDADES_ESPECIFICAS||'Actividad del curso').trim(), details:String(row.ACTIVIDADES_ESPECIFICAS||'').trim(), webResource:String(row.RECURSOS_WEB||'').trim(), presentation:String(row.RECURSOS_PRESENTACIONES||'').trim(), link:String(row.ENLACE||'').trim() };
+    return { id:String(row.ID), module:rawModule||previousModule||'Próximos módulos', moduleAvailable:truthy(row.MODULO_DISPONIBLE), courseDay, weekday:String(row.DIA_SEMANA||'').trim(), date, title:String(row.ACTIVIDAD_PRINCIPAL||row.ACTIVIDADES_ESPECIFICAS||'Actividad del curso').trim(), details:String(row.ACTIVIDADES_ESPECIFICAS||'').trim(), webResource:String(row.RECURSOS_WEB||'').trim(), presentation:String(row.RECURSOS_PRESENTACIONES||'').trim(), link:String(row.ENLACE||'').trim() };
   }).filter(item=>item.date);
 }
 
@@ -80,7 +80,7 @@ function groupActivitiesIntoSessions(activities) {
   const groups=new Map();
   activities.forEach(activity=>{
     const dateKey=`${activity.date.getFullYear()}-${activity.date.getMonth()+1}-${activity.date.getDate()}`,key=`${activity.module}|${activity.courseDay||dateKey}|${dateKey}`;
-    if(!groups.has(key))groups.set(key,{id:`session-${activity.id}`,module:activity.module,courseDay:activity.courseDay,weekday:activity.weekday,date:activity.date,activities:[]});
+    if(!groups.has(key))groups.set(key,{id:`session-${activity.id}`,module:activity.module,moduleAvailable:activity.moduleAvailable,courseDay:activity.courseDay,weekday:activity.weekday,date:activity.date,activities:[]});
     groups.get(key).activities.push(activity);
   });
   return [...groups.values()].map(session=>{
@@ -104,7 +104,7 @@ function buildModules(sessions) {
   sessions.forEach(session => { const key=session.module||'Bloque final'; if(!groups.has(key))groups.set(key,[]); groups.get(key).push(session); });
   return [...groups.entries()].map(([name, items], index) => {
     const match=String(name).match(/(?:m[oó]dulo\s*)?(\d+)/i), number=match?Number(match[1]):index;
-    return { id:`module-${number}`, number, order:number, available:[0,1].includes(number), name, title:name==='Bloque final'?'Bloque final del curso':name, sessions:items.sort((a,b)=>a.date-b.date), start:items.reduce((min,item)=>!min||item.date<min?item.date:min,null), end:items.reduce((max,item)=>!max||item.date>max?item.date:max,null) };
+    return { id:`module-${number}`, number, order:number, available:items.some(item=>item.moduleAvailable), name, title:name==='Bloque final'?'Bloque final del curso':name, sessions:items.sort((a,b)=>a.date-b.date), start:items.reduce((min,item)=>!min||item.date<min?item.date:min,null), end:items.reduce((max,item)=>!max||item.date>max?item.date:max,null) };
   }).sort((a,b)=>a.order-b.order);
 }
 
@@ -121,12 +121,12 @@ function asDate(value) {
 
 function fmtDate(value, options={day:'2-digit',month:'short',year:'numeric'}) { const date=asDate(value); return date?new Intl.DateTimeFormat('es-ES',options).format(date):'—'; }
 
-function renderBase() { const name=state.data.cfg.NOMBRE_CURSO||'Igualdad en práctica'; $('#brandName').textContent=name; $('#sideBrand').textContent=name; document.title=`${name} · Aula`; }
-function enter(event) { state.role=event.currentTarget.dataset.role||'student'; $('#login').classList.add('hidden'); $('#app').classList.remove('hidden'); renderNav(); renderAll(); go(state.role==='teacher'?'teacher-home':'home'); }
+function renderBase() { const name='Promoción para la igualdad efectiva entre mujeres y hombres'; $('#brandName').textContent=name; $('#sideBrand').textContent=name; document.title=`${name} · Aula`; }
+function enter(event) { state.role=event.currentTarget.dataset.role||'student'; $('#login').classList.add('hidden'); $('#app').classList.remove('hidden'); $('#app').dataset.role=state.role; renderNav(); renderAll(); go(state.role==='teacher'?'teacher-home':'home'); }
 
 function renderNav() {
   const items=state.role==='teacher'?[['teacher-home','⌂','Inicio'],['today','◉','Sesión de hoy'],['program','▦','Programa'],['students','♙','Alumnado'],['attendance','✓','Asistencia'],['evaluations','☆','Evaluaciones'],['resources','◇','Materiales']]:[['home','⌂','Inicio'],['program','▦','Programa'],['calendar','□','Calendario'],['resources','◇','Recursos'],['progress','◎','Panel personal']];
-  $('#nav').innerHTML=items.map(([id,icon,label])=>`<button data-page="${id}"><i>${icon}</i>${label}</button>`).join('');
+  $('#nav').innerHTML=items.map(([id,icon,label])=>`<button data-page="${id}" aria-label="${label}"><i aria-hidden="true">${icon}</i><span>${label}</span></button>`).join('');
   $$('#nav button').forEach(button=>button.onclick=()=>go(button.dataset.page));
   $('#userName').textContent=state.role==='teacher'?'Coral':'Alumno demo'; $('#userRole').textContent=state.role==='teacher'?'Profesora':'Alumno';
 }
@@ -141,9 +141,7 @@ function renderHome() {
   $('#heroCard').dataset.number=next?.courseDay||'•'; $('#heroTitle').textContent=next?.title||'Programa del curso'; $('#heroText').textContent=next?`${sameDay(next.date,today)?'Sesión de hoy':'Próxima sesión'} · ${fmtDate(next.date)}${next.details?` · ${next.details}`:''}`:'Consulta las sesiones publicadas.'; $('#heroAction').textContent=next?'Ir a la sesión':'Ver programa';
   $('#progressValue').textContent=`${Math.round(progress*100)}%`; $('#progressText').textContent=currentModule?`${currentModule.title} · ${completed} de ${currentModule.sessions.length} sesiones realizadas`:'Todavía no hay un módulo disponible'; $('#progressBar').style.width=`${Math.round(progress*100)}%`;
   $('#nextDate').textContent=next?fmtDate(next.date,{day:'2-digit',month:'short'}):'—'; $('#nextEvent').textContent=next?.title||'Sin sesiones próximas';
-  $('#homeNotices').innerHTML=ordered.filter(session=>session.date>=today).slice(0,3).map(sessionRow).join('')||'<div class="card empty">No hay sesiones próximas.</div>';
-  $$('[data-home-session]').forEach(button=>button.onclick=()=>openSessionFromProgram(button.dataset.homeSession));
-  $('#page-home .section-title h2').textContent='Próximas sesiones'; $('#resourceCount').textContent=`${resources.length} recursos`;
+  $('#resourceCount').textContent=`${resources.length} recursos`;
 }
 
 function renderModules() {
@@ -166,7 +164,7 @@ function openModule(id, focusSessionId=null) {
 
 function sessionCard(session) {
   const passed=isSessionPassed(session),hasResource=sessionLinks(session).length>0;
-  return `<article class="card session-card" data-session-card="${esc(session.id)}"><span class="chip">${fmtDate(session.date,{weekday:'long',day:'2-digit',month:'short'})}</span><h3>${esc(session.title)}</h3><p>${esc(session.details||'Consulta el contenido y los materiales de esta sesión.')}</p><div class="session-actions"><button class="primary" data-session="${esc(session.id)}">${state.role==='teacher'?'Ver sesión':'Abrir sesión'}</button>${hasResource?'':'<span class="helper">Material pendiente</span>'}${passed?'<span class="tag">Fecha realizada</span>':''}</div></article>`;
+  return `<article class="card session-card" data-session-card="${esc(session.id)}"><span class="chip">${fmtDate(session.date,{weekday:'long',day:'2-digit',month:'short'})}</span><h3>${esc(session.title)}</h3><p>${esc(session.details||'Consulta el contenido y los materiales de esta sesión.')}</p><div class="session-actions"><button class="primary" data-session="${esc(session.id)}">${state.role==='teacher'?'Ver sesión':'Abrir sesión'}</button>${hasResource?'':'<span class="helper">Material pendiente</span>'}${passed?'<span class="tag">Completada</span>':''}</div></article>`;
 }
 
 function sessionLinks(session) { return unique((session.links||[]).map(link=>link.url)).map(url=>session.links.find(link=>link.url===url)); }
@@ -206,7 +204,8 @@ function renderCalendar() {
   const date=state.month||new Date(),year=date.getFullYear(),month=date.getMonth(); $('#monthTitle').textContent=new Intl.DateTimeFormat('es-ES',{month:'long',year:'numeric'}).format(date);
   let html=['L','M','X','J','V','S','D'].map(day=>`<div class="weekday">${day}</div>`).join(''); const first=(new Date(year,month,1).getDay()+6)%7,days=new Date(year,month+1,0).getDate();
   for(let index=0;index<first;index++)html+='<div></div>';
-  for(let day=1;day<=days;day++){const current=new Date(year,month,day),sessions=state.data.sessions.filter(session=>sameDay(session.date,current));html+=`<div class="day ${[0,6].includes(current.getDay())?'weekend':''} ${sessions.length?'has-event':''}"><strong class="day-number">${day}</strong>${sessions.map(session=>`<button class="calendar-session" data-calendar-session="${esc(session.id)}">${esc(session.title)}</button>`).join('')}${sessions.length?`<div class="day-actions"><button class="add-incident" data-incident="${esc(sessions[0].id)}" aria-label="Comunicar ausencia o incidencia" title="Comunicar ausencia o incidencia">+</button></div>`:''}</div>`}
+  const today=startOfDay(new Date());
+  for(let day=1;day<=days;day++){const current=new Date(year,month,day),sessions=state.data.sessions.filter(session=>sameDay(session.date,current)),locked=sessions.length&&sessions.every(session=>!session.moduleAvailable),future=current>today;html+=`<div class="day ${[0,6].includes(current.getDay())?'weekend':''} ${sessions.length?'has-event':''} ${locked?'locked-module':''}"><strong class="day-number">${day}</strong>${sessions.map(session=>!locked&&!future?`<button class="calendar-session" data-calendar-session="${esc(session.id)}">${esc(session.module)}</button>`:`<span class="calendar-module">${esc(session.module)}</span>`).join('')}${sessions.length?`<div class="day-actions"><button class="add-incident" data-incident="${esc(sessions[0].id)}" aria-label="Comunicar ausencia o incidencia" title="Comunicar ausencia o incidencia">+</button></div>`:''}</div>`}
   $('#calendarGrid').innerHTML=html;
   $$('[data-calendar-session]').forEach(button=>button.onclick=()=>openSessionFromProgram(button.dataset.calendarSession));
   $$('[data-incident]').forEach(button=>button.onclick=()=>openIncident(button.dataset.incident));
