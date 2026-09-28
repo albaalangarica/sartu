@@ -5,6 +5,25 @@ const INCIDENT_STORAGE_KEY = 'igualdad-en-practica-incidencias-demo-v1';
 const EVALUATION_STORAGE_KEY = 'igualdad-en-practica-evaluaciones-demo-v1';
 const ATTENDANCE_STORAGE_KEY = 'igualdad-en-practica-asistencia-demo-v1';
 
+const COURSE_STRUCTURE = [
+  { code:'MF1453_3', title:'Comunicación con Perspectiva de Género', units:[
+    { code:'UF2683', title:'Aplicación de conceptos básicos de la teoría de género y del lenguaje no sexista' },
+    { code:'UF2684', title:'Procesos de comunicación con perspectiva de género en el entorno de intervención' }
+  ]},
+  { code:'MF1454_3', title:'Participación y creación de redes con perspectiva de género', units:[
+    { code:'UF2685', title:'Procesos de participación de mujeres y hombres y creación de redes para el impulso de la igualdad' }
+  ]},
+  { code:'MF1582_3', title:'Promoción para la igualdad efectiva entre mujeres y hombres en materia de empleo', units:[
+    { code:'UF2686', title:'Análisis del entorno laboral y gestión de relaciones laborales desde la perspectiva de género' }
+  ]},
+  { code:'MF1583_3', title:'Acciones para la igualdad efectiva de mujeres y hombres', units:[
+    { code:'UF2687', title:'Análisis y actuaciones en diferentes contextos de intervención (salud, sexualidad y educación)' }
+  ]},
+  { code:'MF1584_3', title:'Detección, prevención y acompañamiento en situaciones de violencia contra las mujeres', units:[
+    { code:'UF2688', title:'Análisis y detección de la violencia de género y los procesos de atención a mujeres en situaciones de violencia' }
+  ]}
+];
+
 const state = { data: null, role: 'student', page: 'home', month: null, currentSessionId: null };
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
@@ -99,13 +118,20 @@ function normalizeResource(row) {
 function attachMaterialsToSessions(sessions,resources){resources.filter(resource=>/^https?:\/\//i.test(resource.link)).forEach(resource=>{const session=sessions.find(item=>sameDay(item.date,resource.date)&&keyText(item.module)===keyText(resource.module));if(session&&!session.links.some(item=>item.url===resource.link))session.links.push({label:resource.type,url:resource.link,activity:resource.title,access:resource.access})})}
 function keyText(value){return String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim().toLowerCase()}
 
+function moduleReference(value) {
+  const text=String(value||'');
+  return { moduleCode:(text.match(/MF\d+_3/i)||[])[0]?.toUpperCase()||'', unitCode:(text.match(/UF\d+/i)||[])[0]?.toUpperCase()||'' };
+}
+
 function buildModules(sessions) {
-  const groups = new Map();
-  sessions.forEach(session => { const key=session.module||'Bloque final'; if(!groups.has(key))groups.set(key,[]); groups.get(key).push(session); });
-  return [...groups.entries()].map(([name, items], index) => {
-    const match=String(name).match(/(?:m[oó]dulo\s*)?(\d+)/i), number=match?Number(match[1]):index;
-    return { id:`module-${number}`, number, order:number, available:items.some(item=>item.moduleAvailable), name, title:name==='Bloque final'?'Bloque final del curso':name, sessions:items.sort((a,b)=>a.date-b.date), start:items.reduce((min,item)=>!min||item.date<min?item.date:min,null), end:items.reduce((max,item)=>!max||item.date>max?item.date:max,null) };
-  }).sort((a,b)=>a.order-b.order);
+  return COURSE_STRUCTURE.map((definition,index)=>{
+    const items=sessions.filter(session=>moduleReference(session.module).moduleCode===definition.code).sort((a,b)=>a.date-b.date);
+    const units=definition.units.map(unit=>{
+      const unitSessions=items.filter(session=>moduleReference(session.module).unitCode===unit.code);
+      return {...unit,sessions:unitSessions,available:unitSessions.some(session=>session.moduleAvailable)};
+    });
+    return { id:`module-${definition.code.toLowerCase()}`, code:definition.code, number:index+1, order:index+1, available:items.some(item=>item.moduleAvailable), name:definition.code, title:definition.title, units, sessions:items, start:items.reduce((min,item)=>!min||item.date<min?item.date:min,null), end:items.reduce((max,item)=>!max||item.date>max?item.date:max,null) };
+  });
 }
 
 function asDate(value) {
@@ -124,7 +150,7 @@ function fmtDate(value, options={day:'2-digit',month:'short',year:'numeric'}) { 
 function renderBase() { const name='Promoción para la igualdad efectiva entre mujeres y hombres'; $('#brandName').textContent=name; $('#sideBrand').textContent=name; document.title=`${name} · Aula`; }
 function enter(event) { state.role=event.currentTarget.dataset.role||'student'; $('#login').classList.add('hidden'); $('#app').classList.remove('hidden'); $('#app').dataset.role=state.role; renderNav(); renderAll(); go(state.role==='teacher'?'teacher-home':'home'); }
 
-function renderNav(){
+function renderNav() {
   const items=state.role==='teacher'?[['teacher-home','⌂','Inicio'],['program','▦','Programa'],['attendance','✓','Asistencia'],['evaluations','☆','Evaluaciones'],['resources','◇','Materiales']]:[['home','⌂','Inicio'],['program','▦','Programa'],['calendar','□','Calendario'],['resources','◇','Recursos'],['progress','◎','Panel personal']];
   $('#nav').innerHTML=items.map(([id,icon,label])=>`<button data-page="${id}" aria-label="${label}"><i aria-hidden="true">${icon}</i><span>${label}</span></button>`).join('');
   $$('#nav button').forEach(button=>button.onclick=()=>go(button.dataset.page));
@@ -144,32 +170,48 @@ function renderHome() {
   $('#resourceCount').textContent=`${resources.length} recursos`;
 }
 
-function renderModules(){
+function renderModules() {
   const modules=state.data.modules; $('#moduleCount').textContent=`${modules.length} módulos`;
-  $('#moduleGrid').innerHTML=modules.map(module=>{const units=programUnits(module),locked=state.role!=='teacher'&&!module.available;return `<article class="card module ${locked?'locked':''}"><span class="module-no">${String(module.number).padStart(2,'0')}</span><span class="tag">${state.role==='teacher'?(module.available?'Visible':'Borrador'):(locked?'Próximamente':'Disponible')}</span><h3>${esc(module.title)}</h3><p>${locked?'Este módulo todavía no está disponible.':'Consulta las unidades y los materiales que forman parte del módulo.'}</p><div class="module-meta"><span>${units.length} ${units.length===1?'unidad':'unidades'}</span></div><button class="ghost" ${locked?'disabled':`data-module="${esc(module.id)}"`}>${locked?'No disponible':state.role==='teacher'?'Gestionar módulo':'Entrar al módulo'}</button></article>`}).join('');
+  $('#moduleGrid').innerHTML=modules.map(module=>{const locked=state.role!=='teacher'&&!module.available;return `<article class="card module ${locked?'locked':''}"><span class="module-no module-code">${esc(module.code)}</span><span class="tag">${state.role==='teacher'?(module.available?'Visible':'Borrador'):(locked?'Próximamente':'Disponible')}</span><h3>${esc(module.title)}</h3><p>${locked?'Este módulo todavía no está disponible.':'Consulta sus unidades formativas, contenidos y materiales.'}</p><div class="module-meta"><span>${module.units.length} ${module.units.length===1?'unidad formativa':'unidades formativas'}</span></div><button class="ghost" ${locked?'disabled':`data-module="${esc(module.id)}"`}>${locked?'No disponible':state.role==='teacher'?'Gestionar módulo':'Entrar al módulo'}</button></article>`}).join('');
   $$('[data-module]').forEach(button=>button.onclick=()=>openModule(button.dataset.module));
 }
 
-function programUnits(module){
-  const units=new Map();
-  module.sessions.forEach(session=>session.activities.forEach(activity=>{const key=keyText(activity.title);if(key&&!units.has(key))units.set(key,{activity,session});}));
-  return [...units.values()];
+function unitActivities(unit) {
+  const activities=new Map();
+  unit.sessions.forEach(session=>session.activities.forEach(activity=>{
+    const key=keyText(activity.title);
+    if(key&&!activities.has(key))activities.set(key,{activity,session});
+  }));
+  return [...activities.values()];
 }
 
-function openModule(id,focusSessionId=null){
+function openModule(id, focusSessionId=null) {
   const module=state.data.modules.find(item=>item.id===id); if(!module||(state.role!=='teacher'&&!module.available))return;
   go('program'); $('#moduleGrid').classList.add('hidden');
-  const view=$('#moduleView'); view.classList.remove('hidden'); const evaluation=loadEvaluations().find(item=>item.moduleId===module.id),units=programUnits(module);
-  view.innerHTML=`<div class="module-view-head"><button class="ghost" id="backModules">← Módulos</button><div><p class="eyebrow">${esc(module.name)} · ${units.length} ${units.length===1?'unidad':'unidades'}</p><h2>${esc(module.title)}</h2></div></div><div class="session-grid">${units.map(unit=>programUnitCard(unit.session,unit.activity)).join('')}${state.role==='student'?`<article class="card session-card evaluation-card"><span class="chip">Evaluación del módulo</span><h3>Tu valoración</h3><p>Valora la utilidad, claridad y aplicación de lo aprendido en este módulo.</p><div class="session-actions"><button class="primary" data-module-evaluation="${esc(module.id)}">${evaluation?'Modificar evaluación':'Completar evaluación'}</button>${evaluation?'<span class="tag">Enviada ✓</span>':''}</div></article>`:''}</div>`;
+  const view=$('#moduleView'); view.classList.remove('hidden');
+  const evaluation=loadEvaluations().find(item=>item.moduleId===module.id);
+  view.innerHTML=`<div class="module-view-head"><button class="ghost" id="backModules">← Módulos</button><div><p class="eyebrow">${esc(module.code)} · ${module.units.length} ${module.units.length===1?'unidad formativa':'unidades formativas'}</p><h2>${esc(module.title)}</h2></div></div><div class="session-grid">${module.units.map(unit=>programUnitCard(module,unit)).join('')}${state.role==='student'?`<article class="card session-card evaluation-card"><span class="chip">Evaluación del módulo</span><h3>Tu valoración</h3><p>Valora la utilidad, claridad y aplicación de lo aprendido en este módulo.</p><div class="session-actions"><button class="primary" data-module-evaluation="${esc(module.id)}">${evaluation?'Modificar evaluación':'Completar evaluación'}</button>${evaluation?'<span class="tag">Enviada ✓</span>':''}</div></article>`:''}</div>`;
   $('#backModules').onclick=()=>{view.classList.add('hidden');$('#moduleGrid').classList.remove('hidden');};
-  view.querySelectorAll('[data-program-activity]').forEach(button=>button.onclick=()=>openProgramActivity(button.dataset.programSession,button.dataset.programActivity));
+  view.querySelectorAll('[data-program-unit]').forEach(button=>button.onclick=()=>openUnit(button.dataset.programModule,button.dataset.programUnit));
   view.querySelectorAll('[data-module-evaluation]').forEach(button=>button.onclick=()=>openEvaluation(button.dataset.moduleEvaluation));
-  if(focusSessionId){const card=view.querySelector(`[data-program-session="${CSS.escape(String(focusSessionId))}"]`);card?.closest('.session-card')?.scrollIntoView({behavior:'smooth',block:'center'});}
+  if(focusSessionId){const unit=module.units.find(item=>item.sessions.some(session=>session.id===focusSessionId));if(unit)openUnit(module.id,unit.code);}
 }
 
-function programUnitCard(session,activity){
-  const links=sessionLinks(session).filter(link=>keyText(link.activity)===keyText(activity.title)),hasResource=links.length||sessionLinks(session).length;
-  return `<article class="card session-card"><span class="chip">Unidad</span><h3>${esc(activity.title)}</h3><div class="session-actions"><button class="primary" data-program-session="${esc(session.id)}" data-program-activity="${esc(activity.id)}">${hasResource?'Abrir contenido':'Ver unidad'}</button>${hasResource?'':'<span class="helper">Material pendiente</span>'}</div></article>`;
+function programUnitCard(module,unit) {
+  const activityCount=unitActivities(unit).length;
+  return `<article class="card session-card"><span class="chip">${esc(unit.code)}</span><h3>${esc(unit.title)}</h3>${activityCount?`<p>${activityCount} ${activityCount===1?'contenido':'contenidos'}</p>`:''}<div class="session-actions">${activityCount||state.role==='teacher'?`<button class="primary" data-program-module="${esc(module.id)}" data-program-unit="${esc(unit.code)}">Ver unidad formativa</button>`:''}</div></article>`;
+}
+
+function openUnit(moduleId,unitCode) {
+  const module=state.data.modules.find(item=>item.id===moduleId),unit=module?.units.find(item=>item.code===unitCode); if(!module||!unit)return;
+  const activities=unitActivities(unit),view=$('#moduleView');
+  view.innerHTML=`<div class="module-view-head"><button class="ghost" id="backModule">← ${esc(module.code)}</button><div><p class="eyebrow">${esc(unit.code)}</p><h2>${esc(unit.title)}</h2></div></div><div class="session-grid">${activities.map(({session,activity})=>programActivityCard(session,activity)).join('')}</div>`;
+  $('#backModule').onclick=()=>openModule(module.id);
+  view.querySelectorAll('[data-program-activity]').forEach(button=>button.onclick=()=>openProgramActivity(button.dataset.programSession,button.dataset.programActivity));
+}
+
+function programActivityCard(session,activity) {
+  return `<article class="card session-card activity-card"><h3>${esc(activity.title)}</h3>${activity.details?`<p>${esc(activity.details)}</p>`:''}<div class="session-actions"><button class="primary" data-program-session="${esc(session.id)}" data-program-activity="${esc(activity.id)}">Ver contenido</button></div></article>`;
 }
 
 function sessionLinks(session) { const allowed=(session.links||[]).filter(link=>state.role==='teacher'||link.access!=='SOLO_PROFESORA'); return unique(allowed.map(link=>link.url)).map(url=>allowed.find(link=>link.url===url)); }
@@ -178,15 +220,16 @@ function openSession(id) {
   const session=state.data.sessions.find(item=>item.id===id); if(!session)return;
   $('#sessionEyebrow').textContent=`${session.module||'Programa'} · ${fmtDate(session.date)}`; $('#sessionTitle').textContent=session.title; $('#sessionDescription').textContent=session.details||'Contenido de la sesión.';
   $('#sessionActivityList').innerHTML=session.activities.map(activity=>`<li><strong>${esc(activity.title)}</strong>${activity.details?`<br><small>${esc(activity.details)}</small>`:''}</li>`).join('');
-  const links=sessionLinks(session); $('#sessionResources').innerHTML=links.length?links.map(link=>`<a class="primary" href="${esc(link.url)}" target="_blank" rel="noopener">${esc(link.label)}${link.activity?` · ${esc(link.activity)}`:''}</a>`).join(''):'<p class="helper">Los materiales de esta sesión se publicarán aquí cuando estén disponibles.</p>';
+  const links=sessionLinks(session); $('#sessionResources').innerHTML=links.map(link=>`<a class="primary" href="${esc(link.url)}" target="_blank" rel="noopener">${esc(link.label)}${link.activity?` · ${esc(link.activity)}`:''}</a>`).join('');
   if(!$('#sessionDialog').open)$('#sessionDialog').showModal();
 }
 
-function openProgramActivity(sessionId,activityId){
+function openProgramActivity(sessionId,activityId) {
   const session=state.data.sessions.find(item=>item.id===sessionId),activity=session?.activities.find(item=>item.id===activityId); if(!session||!activity)return;
-  $('#sessionEyebrow').textContent=session.module||'Programa'; $('#sessionTitle').textContent=activity.title; $('#sessionDescription').textContent=activity.details||'Contenido de la unidad.'; $('#sessionActivityList').innerHTML='';
+  $('#sessionEyebrow').textContent=session.module||'Programa'; $('#sessionTitle').textContent=activity.title; $('#sessionDescription').textContent=activity.details||'Contenido de la unidad.';
+  $('#sessionActivityList').innerHTML='';
   const exact=sessionLinks(session).filter(link=>keyText(link.activity)===keyText(activity.title)),links=exact.length?exact:sessionLinks(session);
-  $('#sessionResources').innerHTML=links.length?links.map(link=>`<a class="primary" href="${esc(link.url)}" target="_blank" rel="noopener">${esc(link.label)}</a>`).join(''):'<p class="helper">Los materiales de esta unidad se publicarán aquí cuando estén disponibles.</p>';
+  $('#sessionResources').innerHTML=links.map(link=>`<a class="primary" href="${esc(link.url)}" target="_blank" rel="noopener">${esc(link.label)}</a>`).join('');
   if(!$('#sessionDialog').open)$('#sessionDialog').showModal();
 }
 
@@ -213,18 +256,27 @@ function renderPersonal() {
 function isSessionPassed(session){const status=loadAttendance()[session.id];if(status&&status!=='pending')return ['present','late','early'].includes(status);return session.date<startOfDay(new Date())}
 
 function sessionRow(session) { return `<article class="card row"><strong>${fmtDate(session.date,{day:'2-digit',month:'short'})}</strong><div><strong>${esc(session.title)}</strong><br><small>${esc(session.weekday)}${session.module?` · ${esc(session.module)}`:''}</small></div><button class="ghost" data-home-session="${esc(session.id)}">Ver sesión</button></article>`; }
-function renderCalendar(){
+function renderCalendar() {
   const date=state.month||new Date(),year=date.getFullYear(),month=date.getMonth(); $('#monthTitle').textContent=new Intl.DateTimeFormat('es-ES',{month:'long',year:'numeric'}).format(date);
-  $('#calendarLegend').innerHTML=state.data.modules.map((module,index)=>`<span class="calendar-key module-tone-${index%8}"><i></i>${esc(module.name)}</span>`).join('')+'<span class="calendar-key milestone-exam"><i></i>Examen</span><span class="calendar-key milestone-evaluation"><i></i>Evaluación</span>';
-  let html=['L','M','X','J','V','S','D'].map(day=>`<div class="weekday">${day}</div>`).join(''); const first=(new Date(year,month,1).getDay()+6)%7,days=new Date(year,month+1,0).getDate(); for(let index=0;index<first;index++)html+='<div></div>'; const today=startOfDay(new Date());
-  for(let day=1;day<=days;day++){const current=new Date(year,month,day),sessions=state.data.sessions.filter(session=>sameDay(session.date,current)),module=state.data.modules.find(item=>sessions.some(session=>session.module===item.name)),moduleIndex=Math.max(0,state.data.modules.indexOf(module)),locked=sessions.length&&sessions.every(session=>!session.moduleAvailable),future=current>today,milestones=calendarMilestones(sessions);const moduleLabel=sessions.length?(locked||future?`<span class="calendar-module">${esc(module?.name||sessions[0].module)}</span>`:`<button class="calendar-session" data-calendar-module="${esc(module?.id||'')}">${esc(module?.name||sessions[0].module)}</button>`):'';html+=`<div class="day ${[0,6].includes(current.getDay())?'weekend':''} ${sessions.length?`has-event module-tone-${moduleIndex%8}`:''} ${locked?'locked-module':''}"><strong class="day-number">${day}</strong>${moduleLabel}${milestones.map(type=>`<span class="calendar-milestone milestone-${type}">${type==='exam'?'Examen':'Evaluación'}</span>`).join('')}${sessions.length?`<div class="day-actions"><button class="add-incident" data-incident="${esc(sessions[0].id)}" aria-label="Comunicar ausencia o incidencia" title="Comunicar ausencia o incidencia">+</button></div>`:''}</div>`;}
-  $('#calendarGrid').innerHTML=html; $$('[data-calendar-module]').forEach(button=>button.onclick=()=>openModule(button.dataset.calendarModule)); $$('[data-incident]').forEach(button=>button.onclick=()=>openIncident(button.dataset.incident));
+  $('#calendarLegend').innerHTML=state.data.modules.map((module,index)=>`<span class="calendar-key module-tone-${index%8}" title="${esc(module.title)}"><i></i>${esc(module.code)}</span>`).join('')+'<span class="calendar-key milestone-exam"><i></i>Examen</span><span class="calendar-key milestone-evaluation"><i></i>Evaluación</span>';
+  let html=['L','M','X','J','V','S','D'].map(day=>`<div class="weekday">${day}</div>`).join(''); const first=(new Date(year,month,1).getDay()+6)%7,days=new Date(year,month+1,0).getDate();
+  for(let index=0;index<first;index++)html+='<div></div>';
+  const today=startOfDay(new Date());
+  for(let day=1;day<=days;day++){
+    const current=new Date(year,month,day),sessions=state.data.sessions.filter(session=>sameDay(session.date,current)),module=state.data.modules.find(item=>sessions.some(session=>item.sessions.some(candidate=>candidate.id===session.id))),moduleIndex=Math.max(0,state.data.modules.indexOf(module)),locked=sessions.length&&sessions.every(session=>!session.moduleAvailable),future=current>today,milestones=calendarMilestones(sessions);
+    const moduleLabel=sessions.length?(locked||future?`<span class="calendar-module">${esc(module?.code||sessions[0].module)}</span>`:`<button class="calendar-session" data-calendar-module="${esc(module?.id||'')}">${esc(module?.code||sessions[0].module)}</button>`):'';
+    html+=`<div class="day ${[0,6].includes(current.getDay())?'weekend':''} ${sessions.length?`has-event module-tone-${moduleIndex%8}`:''} ${locked?'locked-module':''}"><strong class="day-number">${day}</strong>${moduleLabel}${milestones.map(type=>`<span class="calendar-milestone milestone-${type}">${type==='exam'?'Examen':'Evaluación'}</span>`).join('')}${sessions.length?`<div class="day-actions"><button class="add-incident" data-incident="${esc(sessions[0].id)}" aria-label="Comunicar ausencia o incidencia" title="Comunicar ausencia o incidencia">+</button></div>`:''}</div>`;
+  }
+  $('#calendarGrid').innerHTML=html;
+  $$('[data-calendar-module]').forEach(button=>button.onclick=()=>openModule(button.dataset.calendarModule));
+  $$('[data-incident]').forEach(button=>button.onclick=()=>openIncident(button.dataset.incident));
 }
 
-function calendarMilestones(sessions){
+function calendarMilestones(sessions) {
   const titles=sessions.flatMap(session=>session.activities.map(activity=>activity.title.trim())),milestones=[];
   if(titles.some(title=>/^examen(?:\b|$)|^prueba\s+(?:final|de\s+evaluaci[oó]n)/i.test(title)))milestones.push('exam');
-  if(titles.some(title=>/^evaluaci[oó]n\b|^valoraci[oó]n\s+(?:del\s+)?m[oó]dulo\b/i.test(title)))milestones.push('evaluation'); return milestones;
+  if(titles.some(title=>/^evaluaci[oó]n\b|^valoraci[oó]n\s+(?:del\s+)?m[oó]dulo\b/i.test(title)))milestones.push('evaluation');
+  return milestones;
 }
 
 function openSessionFromProgram(id) {
