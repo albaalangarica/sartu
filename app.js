@@ -4,6 +4,8 @@ const STORAGE_KEY = 'igualdad-en-practica-progreso-v1';
 const INCIDENT_STORAGE_KEY = 'igualdad-en-practica-incidencias-demo-v1';
 const EVALUATION_STORAGE_KEY = 'igualdad-en-practica-evaluaciones-demo-v1';
 const ATTENDANCE_STORAGE_KEY = 'igualdad-en-practica-asistencia-demo-v1';
+const STUDENT_NAMES = ['Jessica','Saio','Yuri','Andrea','Natalia','Xabier','Itxaso','Pilar','Zigor','Nerea','Joseph'];
+const TEACHER_PASSWORD = 'Sartu2026.';
 
 const COURSE_STRUCTURE = [
   { code:'MF1453_3', title:'Comunicación con Perspectiva de Género', units:[
@@ -24,7 +26,7 @@ const COURSE_STRUCTURE = [
   ]}
 ];
 
-const state = { data: null, role: 'student', page: 'home', month: null, currentSessionId: null };
+const state = { data: null, role: 'student', userName: '', page: 'home', month: null, currentSessionId: null };
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
 const esc = value => String(value ?? '').replace(/[&<>'"]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));
@@ -35,6 +37,9 @@ window.addEventListener('DOMContentLoaded', () => { bindStatic(); loadCourse(); 
 function bindStatic() {
   $('#retry').onclick = loadCourse;
   $$('[data-role]').forEach(button => button.onclick = enter);
+  $('#studentLoginForm').onsubmit = enterNamedStudent;
+  $('#enterAnonymous').onclick = () => enterRole('student','Sin identificar');
+  $('#teacherLoginForm').onsubmit = enterTeacher;
   $('#logout').onclick = () => { state.page = 'home'; $('#app').classList.add('hidden'); $('#login').classList.remove('hidden'); };
   $('#closeSession').onclick = () => $('#sessionDialog').close();
   $('#closeIncident').onclick = () => $('#incidentDialog').close();
@@ -148,25 +153,41 @@ function asDate(value) {
 function fmtDate(value, options={day:'2-digit',month:'short',year:'numeric'}) { const date=asDate(value); return date?new Intl.DateTimeFormat('es-ES',options).format(date):'—'; }
 
 function renderBase() { const name='Promoción para la igualdad efectiva entre mujeres y hombres'; $('#brandName').textContent=name; $('#sideBrand').textContent=name; document.title=`${name} · Aula`; }
-function enter(event) { state.role=event.currentTarget.dataset.role||'student'; $('#login').classList.add('hidden'); $('#app').classList.remove('hidden'); $('#app').dataset.role=state.role; renderNav(); renderAll(); go(state.role==='teacher'?'teacher-home':'home'); }
+function enter(event) { const role=event.currentTarget.dataset.role||'student'; enterRole(role,role==='teacher'?'Coral':'Sin identificar'); }
+function enterNamedStudent(event) {
+  event.preventDefault();
+  const input=$('#studentName'),error=$('#studentLoginError'),typed=keyText(input.value);
+  const student=STUDENT_NAMES.find(name=>keyText(name)===typed);
+  if(!student){error.textContent='No encuentro ese nombre en la lista. Revisa cómo está escrito o entra sin identificarte.';input.focus();return;}
+  error.textContent=''; enterRole('student',student);
+}
+function enterTeacher(event) {
+  event.preventDefault();
+  const password=$('#teacherPassword'),error=$('#teacherLoginError');
+  if(password.value!==TEACHER_PASSWORD){error.textContent='La contraseña no es correcta.';password.select();return;}
+  error.textContent=''; password.value=''; enterRole('teacher','Coral');
+}
+function enterRole(role,userName) {
+  state.role=role; state.userName=userName; $('#login').classList.add('hidden'); $('#app').classList.remove('hidden'); $('#app').dataset.role=role; renderNav(); renderAll(); go(role==='teacher'?'teacher-home':'home');
+}
 
 function renderNav() {
-  const items=state.role==='teacher'?[['teacher-home','⌂','Inicio'],['program','▦','Programa'],['attendance','✓','Asistencia'],['evaluations','☆','Evaluaciones'],['resources','◇','Materiales']]:[['home','⌂','Inicio'],['program','▦','Programa'],['calendar','□','Calendario'],['resources','◇','Recursos'],['progress','◎','Panel personal']];
+  const items=state.role==='teacher'?[['teacher-home','⌂','Inicio'],['program','▦','Programa'],['attendance','✓','Asistencia'],['evaluations','☆','Evaluaciones'],['resources','◇','Materiales']]:[['home','⌂','Inicio'],['program','▦','Programa'],['calendar','□','Calendario'],['resources','◇','Recursos']];
   $('#nav').innerHTML=items.map(([id,icon,label])=>`<button data-page="${id}" aria-label="${label}"><i aria-hidden="true">${icon}</i><span>${label}</span></button>`).join('');
   $$('#nav button').forEach(button=>button.onclick=()=>go(button.dataset.page));
-  $('#userName').textContent=state.role==='teacher'?'Coral':'Alumno demo'; $('#userRole').textContent=state.role==='teacher'?'Profesora':'Alumno';
+  $('#userName').textContent=state.userName||(state.role==='teacher'?'Coral':'Sin identificar'); $('#userRole').textContent=state.role==='teacher'?'Profesora':'Alumno/a';
 }
 
 function go(page) { state.page=page; $$('.page').forEach(section=>section.classList.toggle('active',section.id===`page-${page}`)); $$('#nav button').forEach(button=>button.classList.toggle('active',button.dataset.page===page)); const button=$(`#nav [data-page="${page}"]`); $('#topTitle').textContent=button?button.textContent.trim():'Aula'; if(page==='program'){ $('#moduleGrid').classList.remove('hidden'); $('#moduleView').classList.add('hidden'); } window.scrollTo({top:0,behavior:'smooth'}); }
 function renderAll() { renderHome(); renderModules(); renderResources(); renderPersonal(); renderCalendar(); renderTeacherHome(); renderToday(); renderStudents(); renderAttendance(); renderTeacherEvaluations(); }
 
 function renderHome() {
-  const {cfg,sessions,resources}=state.data, ordered=[...sessions].sort((a,b)=>a.date-b.date), today=startOfDay(new Date()), next=ordered.find(session=>session.date>=today)||ordered[ordered.length-1],currentModule=state.data.modules.find(module=>module.available&&module.sessions.some(session=>session.id===next?.id)),completed=currentModule?.sessions.filter(isSessionPassed).length||0,progress=currentModule?.sessions.length?completed/currentModule.sessions.length:0;
+  const {cfg,sessions,resources}=state.data, ordered=[...sessions].sort((a,b)=>a.date-b.date), today=startOfDay(new Date()), next=ordered.find(session=>session.date>=today)||ordered[ordered.length-1],nextEvaluation=ordered.find(session=>session.date>=today&&calendarMilestones([session]).includes('evaluation')),currentModule=state.data.modules.find(module=>module.available&&module.sessions.some(session=>session.id===next?.id)),completed=currentModule?.sessions.filter(isSessionPassed).length||0,progress=currentModule?.sessions.length?completed/currentModule.sessions.length:0;
   $('#homeEyebrow').textContent='Tu aula'; $('#welcome').textContent='Buenos días.'; $('#homeIntro').textContent='Consulta el programa actualizado y continúa tu recorrido por el curso.'; $('#courseEdition').textContent=`Edición ${cfg.EDICION||'2026–2027'}`;
   state.currentSessionId=next?.id||null;
   $('#heroCard').dataset.number=next?.courseDay||'•'; $('#heroTitle').textContent=next?.title||'Programa del curso'; $('#heroText').textContent=next?`${sameDay(next.date,today)?'Sesión de hoy':'Próxima sesión'} · ${fmtDate(next.date)}${next.details?` · ${next.details}`:''}`:'Consulta las sesiones publicadas.'; $('#heroAction').textContent=next?'Ir a la sesión':'Ver programa';
   $('#progressValue').textContent=`${Math.round(progress*100)}%`; $('#progressText').textContent=currentModule?`${currentModule.title} · ${completed} de ${currentModule.sessions.length} sesiones realizadas`:'Todavía no hay un módulo disponible'; $('#progressBar').style.width=`${Math.round(progress*100)}%`;
-  $('#nextDate').textContent=next?fmtDate(next.date,{day:'2-digit',month:'short'}):'—'; $('#nextEvent').textContent=next?.title||'Sin sesiones próximas';
+  $('#nextDate').textContent=nextEvaluation?fmtDate(nextEvaluation.date,{day:'2-digit',month:'short'}):'—'; $('#nextEvent').textContent=nextEvaluation?.title||'Sin evaluaciones próximas';
   $('#resourceCount').textContent=`${resources.length} recursos`;
 }
 
@@ -244,6 +265,7 @@ function renderResources() {
 }
 
 function renderPersonal() {
+  if(!$('#personalDashboard'))return;
   const today=startOfDay(new Date()),available=state.data.modules.filter(module=>module.available),current=available.find(module=>module.start<=today&&module.end>=today)||available.find(module=>module.end>=today)||available[available.length-1],sessions=current?.sessions||[],done=sessions.filter(isSessionPassed).length,percentage=sessions.length?Math.round(done/sessions.length*100):0,next=state.data.sessions.find(session=>session.date>=today),incidents=loadIncidents(),evaluations=loadEvaluations(),pending=available.filter(module=>module.end<today&&!evaluations.some(item=>item.moduleId===module.id));
   $('#personalProgress').textContent=current?current.title:'Módulo actual';
   const incidentLabels={absence:'Ausencia',late:'Retraso',early:'Salida anticipada',other:'Otra incidencia'};
