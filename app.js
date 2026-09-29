@@ -228,11 +228,12 @@ function openUnit(moduleId,unitCode) {
   const activities=unitActivities(unit),view=$('#moduleView');
   view.innerHTML=`<div class="module-view-head"><button class="ghost" id="backModule">← ${esc(module.code)}</button><div><p class="eyebrow">${esc(unit.code)}</p><h2>${esc(unit.title)}</h2></div></div><div class="session-grid">${activities.map(({session,activity})=>programActivityCard(session,activity)).join('')}</div>`;
   $('#backModule').onclick=()=>openModule(module.id);
-  view.querySelectorAll('[data-program-activity]').forEach(button=>button.onclick=()=>openProgramActivity(button.dataset.programSession,button.dataset.programActivity));
 }
 
 function programActivityCard(session,activity) {
-  return `<article class="card session-card activity-card"><h3>${esc(activity.title)}</h3>${activity.details?`<p>${esc(activity.details)}</p>`:''}<div class="session-actions"><button class="primary" data-program-session="${esc(session.id)}" data-program-activity="${esc(activity.id)}">Ver contenido</button></div></article>`;
+  const available=sessionLinks(session),exact=available.filter(link=>keyText(link.activity)===keyText(activity.title)),links=exact.length?exact:(session.activities.length===1?available:[]);
+  const resourceLinks=links.map(link=>`<a class="primary" href="${esc(link.url)}" target="_blank" rel="noopener">${esc(link.label||'Abrir recurso')}</a>`).join('');
+  return `<article class="card session-card activity-card"><h3>${esc(activity.title)}</h3>${activity.details?`<p>${esc(activity.details)}</p>`:''}${resourceLinks?`<div class="session-actions">${resourceLinks}</div>`:''}</article>`;
 }
 
 function sessionLinks(session) { const allowed=(session.links||[]).filter(link=>state.role==='teacher'||link.access!=='SOLO_PROFESORA'); return unique(allowed.map(link=>link.url)).map(url=>allowed.find(link=>link.url===url)); }
